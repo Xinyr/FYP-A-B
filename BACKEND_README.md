@@ -11,6 +11,9 @@ The current backend contains two completed phases.
 | Phase 1 | Database Foundation | Completed |
 | Phase 2 | Transactional Ingestion Persistence | Completed |
 
+The backend now stores ingestion batches, accepted financial records and validation issues in PostgreSQL/Supabase. I also added source_file across the three main tables so we can trace which financial file each batch, record and validation issue came from.
+Phase 2 connects the ingestion output to the database using a transactional persistence flow. VALID and WARNING records are accepted into financial_records, while REJECTED records are not stored as accepted financial records.
+
 ## Phase 1 Database Foundation
 
 Phase 1 provides the PostgreSQL database structure used to store financial ingestion results.
