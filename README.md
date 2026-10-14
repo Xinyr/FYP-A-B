@@ -33,4 +33,4 @@ The Vitest suites are focused policy/helper tests. They do not exercise a live A
 - MFA, session controls, rate limiting, production file scanning, and hosted Supabase policy/deployment are not implemented by this foundation.
 - Do not put real financial data, credentials, or hosted secrets in tests or logs.
 
-This work is intended to be reviewed and integrated into Jason's cybersecurity branch. It has not been pushed from this folder.
+This work is intended to be reviewed and integrated into the cybersecurity branch. It has not been pushed from this folder.
