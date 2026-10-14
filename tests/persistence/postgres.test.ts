@@ -52,6 +52,13 @@ describe("server PostgreSQL adapter", () => {
     await expect(fixture.database.transaction(async () => "none")).rejects.toMatchObject({ code: "DATABASE_UNAVAILABLE" });
     expect(fixture.release).not.toHaveBeenCalled();
   });
+  it.each(["READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"] as const)("establishes requested %s before the first query", async isolationLevel => {
+    const fixture = poolFixture();
+    await fixture.database.transaction(async () => {}, { isolationLevel });
+    expect(fixture.query.mock.calls.map(call => call[0])).toEqual([
+      `BEGIN ISOLATION LEVEL ${isolationLevel}`, expect.stringContaining("set_config"), "COMMIT",
+    ]);
+  });
   it("rolls back callback errors and never returns partial success", async () => {
     const fixture = poolFixture();
     await expect(fixture.database.transaction(async () => { throw new Error("private financial values"); })).rejects.toMatchObject({ code: "PERSISTENCE_FAILED" });

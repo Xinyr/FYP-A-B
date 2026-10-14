@@ -25,11 +25,11 @@ async function insertedId(connection: SqlConnection, sql: string, values: unknow
 export interface PersistenceRepository {
   persistNewAttempt(plan: PersistencePlan): Promise<PersistedAttempt>;
 }
-export function createPersistenceRepository(database: TransactionDatabase): PersistenceRepository {
+export function createPersistenceRepository(database: TransactionDatabase, allowEmpty = false): PersistenceRepository {
   return {
     async persistNewAttempt(plan) {
       // Phase 2A creates the owned plan; never expose this repository to untrusted input.
-      if (!plan.datasets.some(dataset => dataset.records.length > 0)) throw new PersistenceError("EMPTY_ACCEPTED_BATCH_UNSUPPORTED");
+      if (!allowEmpty && !plan.datasets.some(dataset => dataset.records.length > 0)) throw new PersistenceError("EMPTY_ACCEPTED_BATCH_UNSUPPORTED");
       return database.transaction(async connection => {
         const b = plan.batch;
         const batchId = await insertedId(connection,
@@ -68,7 +68,9 @@ export function createPersistenceRepository(database: TransactionDatabase): Pers
           && b.rows_received === b.valid_count + b.warning_count + b.rejected_count);
         // ACTIVE certifies this write's accepted rows/issues/counts only, not accounting accuracy.
         const complete = await connection.query(
-          "UPDATE public.ingestion_batches SET status = 'ACTIVE', completed_at = clock_timestamp() WHERE id = $1 AND status = 'PROCESSING'", [batchId]);
+          count.accepted === 0
+            ? "UPDATE public.ingestion_batches SET status = 'COMPLETED_EMPTY', completed_at = clock_timestamp() WHERE id = $1 AND status = 'PROCESSING'"
+            : "UPDATE public.ingestion_batches SET status = 'ACTIVE', completed_at = clock_timestamp() WHERE id = $1 AND status = 'PROCESSING'", [batchId]);
         requireDatabase(complete.rowCount === 1);
         return {
           outcome: "PERSISTED_NEW_ATTEMPT", batch_id: batchId, ingestion_batch_id: b.ingestion_batch_id,

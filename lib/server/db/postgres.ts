@@ -17,8 +17,11 @@ export interface ConnectionPool {
   end(): Promise<void>;
 }
 export interface TransactionDatabase {
-  transaction<T>(work: (connection: SqlConnection) => Promise<T>): Promise<T>;
+  transaction<T>(work: (connection: SqlConnection) => Promise<T>, options?: TransactionOptions): Promise<T>;
   close(): Promise<void>;
+}
+export interface TransactionOptions {
+  isolationLevel: "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE";
 }
 export const DATABASE_LIMITS = {
   poolSize: 4, connectionMs: 5_000, idleMs: 10_000,
@@ -68,7 +71,14 @@ function sqlState(error: unknown): string | undefined {
 /** One checked-out connection, no automatic retries, including uncertain commits. */
 export function transactionDatabase(pool: ConnectionPool): TransactionDatabase {
   return {
-    async transaction<T>(work: (connection: SqlConnection) => Promise<T>): Promise<T> {
+    async transaction<T>(work: (connection: SqlConnection) => Promise<T>, options?: TransactionOptions): Promise<T> {
+      const begins = {
+        "READ COMMITTED": "BEGIN ISOLATION LEVEL READ COMMITTED",
+        "REPEATABLE READ": "BEGIN ISOLATION LEVEL REPEATABLE READ",
+        "SERIALIZABLE": "BEGIN ISOLATION LEVEL SERIALIZABLE",
+      } as const;
+      const begin = options ? begins[options.isolationLevel] : "BEGIN";
+      if (!begin) throw new PersistenceError("INVALID_INPUT");
       let client: CheckedOutConnection;
       try { client = await pool.connect(); } catch { throw new PersistenceError("DATABASE_UNAVAILABLE"); }
       let began = false, committing = false, destroy = false;
@@ -80,7 +90,7 @@ export function transactionDatabase(pool: ConnectionPool): TransactionDatabase {
         },
       };
       try {
-        await client.query("BEGIN");
+        await client.query(begin);
         began = true;
         await connection.query("SELECT set_config('statement_timeout', $1, true), set_config('lock_timeout', $2, true), set_config('idle_in_transaction_session_timeout', $3, true)",
           [String(DATABASE_LIMITS.statementMs), String(DATABASE_LIMITS.lockMs), String(DATABASE_LIMITS.idleTransactionMs)]);

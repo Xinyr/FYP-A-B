@@ -1,18 +1,33 @@
 # FinSight Backend Database and Persistence
 
-This README explains the current backend implementation for FinSight Phase 1 and Phase 2. It shows what has been implemented, which files are important, how to create or update the database through Supabase SQL Editor, how to run Phase 2 ingestion, and how to verify the backend.
+This README explains the FinGence (previously FinSight) backend: completed Phase 1 and Phase 2, plus internally verified C3-B1 grouped persistence. Final C1/C2 application integration remains pending. It shows the implementation, database workflow, Phase 2 ingestion and verification commands.
 
 ## Current Backend Scope
 
-The current backend contains two completed phases.
+The current backend contains two completed phases and the implemented internal C3-B1 persistence boundary.
 
 | Phase | Name | Status |
 | --- | --- | --- |
 | Phase 1 | Database Foundation | Completed |
 | Phase 2 | Transactional Ingestion Persistence | Completed |
+| C3-B1 | Grouped Persistence | Implemented and locally verified; final C1/C2 integration pending |
 
 The backend now stores ingestion batches, accepted financial records and validation issues in PostgreSQL/Supabase. I also added source_file across the three main tables so we can trace which financial file each batch, record and validation issue came from.
 Phase 2 connects the ingestion output to the database using a transactional persistence flow. VALID and WARNING records are accepted into financial_records, while REJECTED records are not stored as accepted financial records.
+
+## C3-B1 Grouped Persistence
+
+`lib/server/persistence/grouped.ts` accepts internal version `0.1` ingestion results and a caller-retained UUID persistence attempt ID. Multiple datasets use one atomic PostgreSQL transaction: all child batches commit together or all roll back together. Each dataset preserves its own producer ingestion batch ID, database batch UUID, source filename, accepted records, validation summary and available metadata.
+
+Successfully processed datasets with zero accepted records finish as `COMPLETED_EMPTY`. Their metadata and rejected counts remain stored, without artificial financial transactions. Nonempty batches retain `ACTIVE`. The existing Phase 2 single-dataset entry point and receipt shape remain compatible; use the grouped service for C3-B1 empty-dataset support.
+
+Unknown COMMIT outcomes can be investigated using the durable attempt UUID against the same authoritative writable database. Investigation shares the writer's advisory lock and uses `READ COMMITTED` established in `BEGIN`. Missing evidence alone does not prove rollback; unavailable locks or insufficient evidence return `UNRESOLVED`. Committed attempt IDs cannot be reused, and persistence never automatically retries uncertain outcomes.
+
+The additive migration is `supabase/sql/c3b1-grouped-persistence-upgrade.sql`, applied after the Phase 1 source-file foundation. **Hosted Supabase C3-B1 migration remains unapplied.** Hosted execution requires separate approval; the integration tests use only disposable local databases.
+
+The approved personal-repository implementation previously passed **290 tests across 18 files, including 8 native PostgreSQL tests**. Group-checkout results are recorded separately below after local verification. Native tests create a fresh loopback PostgreSQL cluster and cover independent connections, advisory-lock contention, concurrent duplicate writers, rollback, lost COMMIT acknowledgement, all three session isolation defaults and legacy Phase 2 compatibility.
+
+Final C1/C2 integration remains pending Chia's confirmed manifest and the external adapter. This internal service does not finalize `AcceptedDataPayload` or claim completed application integration. See `docs/database/c3b1-internal-handoff.md` for interfaces, investigation assumptions, test setup and remaining integration requirements.
 
 ## Phase 1 Database Foundation
 
@@ -307,7 +322,7 @@ Run schema compatibility verification:
 node tests/persistence/schema-compatibility.mjs
 ```
 
-The latest verified local result is:
+The earlier Phase 1/2 verification result, before C3-B1, was:
 
 ```text
 268 tests passed across 16 files
@@ -353,7 +368,7 @@ Additional Phase 1 and Phase 2 documentation is available under:
 
 ### Verification
 
-Current local verification:
+Historical Phase 1/2 local verification, before C3-B1:
 
 268 tests passed across 16 files
 
@@ -369,4 +384,4 @@ Schema compatibility PASS
 
 CLI isolation and hosted target guard PASS
 
-The current backend scope includes completed Phase 1 and Phase 2 only.
+The current backend scope includes completed Phase 1 and Phase 2 plus internally implemented C3-B1. Final C1/C2 application integration and hosted C3-B1 migration remain pending.
