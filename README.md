@@ -1,6 +1,6 @@
 # FinSight Security Foundation
 
-This folder contains Jason's Phase 3 cybersecurity foundation for the FinSight project. It is a local security-focused working copy, not a deployed application or a complete authentication system.
+This folder contains cybersecurity foundation for the FinSight project. It is a local security-focused working copy, not a deployed application or a complete authentication system.
 
 ## What is included
 
