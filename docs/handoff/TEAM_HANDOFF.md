@@ -1,3 +1,7 @@
+# Current integration candidate — 15 October 2026
+
+The SAIC consultation candidate integrates reviewed ingestion/C1/C2 and live C1 analytics, with local-only grouped persistence and server-only security helpers. See the [current integration status and ownership](../releases/saic-2026-10-16/README.md) for authoritative release scope, test evidence, limitations and approval gates. The historical ingestion handoff below remains useful for engine semantics; older future-integration statements are superseded only by that release document. Schema/ruleset remain `0.1`. No production or shared-main deployment is implied by a candidate.
+
 # FinSight ingestion — teammate handoff
 
 **Default downstream input: accepted canonical records.**
