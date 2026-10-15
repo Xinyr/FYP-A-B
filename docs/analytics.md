@@ -74,3 +74,26 @@ pnpm test
 The analytics tests cover version checks, warning policy, exact decimal
 aggregation, currency/basis separation, deterministic ratios and variance,
 forecast baselines/evaluation, and anomaly provenance/grouping.
+
+
+## Reduced C1 accepted-data adapter
+
+`lib/analytics/accepted-data-adapter.ts` adds `analyzeAcceptedDataPayload` as a
+separate entry point for a reduced accepted-data payload. It does not replace
+`analyzeIngestionResults` or change the ingestion schema/ruleset. Dataset-level
+metadata restores the omitted provenance fields; `source_row_id` and
+`source_row_number` remain per-record values.
+
+The adapter derives `derived_ledger_net = debit - credit` only for
+`monetary_basis === "debit_credit"` and only when both decimal strings are
+present. It uses `BigInt`-based decimal arithmetic and does not assume a missing
+side is zero. It does not derive ledger net for bank/source-amount records.
+
+**Integration note:** this repository snapshot does not contain Chia's actual
+C1 `AcceptedDataPayload` type. The type in the new adapter is a proposed
+boundary based on the existing synthetic evidence export's dataset metadata.
+Confirm the exact field names and omitted provenance fields against Chia's C1/C2
+contract before merging.
+
+The TypeScript target is ES2020 to support native `BigInt` literals. Vitest now
+discovers all `tests/**/*.test.ts`, including the existing analytics tests.
