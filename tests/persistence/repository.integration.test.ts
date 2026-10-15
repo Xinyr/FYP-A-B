@@ -21,7 +21,13 @@ beforeAll(async () => {
   database = createPostgresDatabase({ SUPABASE_DATABASE_URL: `postgres://postgres@${socket.getServerConn()}/postgres?sslmode=disable` });
 }, 30_000);
 beforeEach(async () => {
+  // A destroyed pg client may release the pool before the server observes TCP
+  // close. With maxConnections=1, reusing the next pool immediately is racy on
+  // Linux. Isolate each test and await the actual socket state, never retry a write.
+  await database?.close();
+  await vi.waitFor(() => expect(socket.getStats().activeConnections).toBe(0));
   await local.exec("TRUNCATE public.validation_issues, public.financial_records, public.ingestion_batches;");
+  database = createPostgresDatabase({ SUPABASE_DATABASE_URL: `postgres://postgres@${socket.getServerConn()}/postgres?sslmode=disable` });
 });
 afterAll(async () => {
   await database?.close();
