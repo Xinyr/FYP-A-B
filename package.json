@@ -1,37 +1,51 @@
 {
-  "name": "finsight-backend",
+  "name": "finsight-prototype",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "phase2:ingest": "node --conditions=react-server scripts/phase2.mjs",
-    "lint": "eslint .",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
     "test": "vitest run",
-    "test:persistence": "vitest run tests/persistence",
-    "test:db": "vitest run tests/persistence/repository.integration.test.ts",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit --incremental false",
+    "typecheck": "next typegen && tsc --noEmit --incremental false",
+    "check:server-boundary": "node scripts/verify-server-boundary.mjs",
     "test:ingestion": "vitest run tests/ingestion",
-    "check:server-boundary": "node scripts/verify-server-boundary.mjs"
+    "test:analytics": "vitest run tests/analytics.test.ts tests/analytics-adapter.test.ts tests/integration/ingestion-analytics.test.ts",
+    "test:persistence": "vitest run tests/persistence tests/integration/grouped-consultation.test.ts",
+    "test:security": "vitest run tests/security",
+    "phase2:ingest": "node --conditions=react-server scripts/phase2.mjs",
+    "demo:persistence": "vitest run tests/integration/grouped-consultation.test.ts --reporter=verbose"
   },
   "dependencies": {
     "fflate": "0.8.3",
+    "lucide-react": "^1.38.0",
+    "next": "16.3.6",
     "papaparse": "5.7.0",
-    "pg": "^8.23.1",
+    "pg": "8.23.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "read-excel-file": "9.3.10",
-    "server-only": "^0.0.1"
+    "server-only": "0.0.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.8",
-    "@electric-sql/pglite-socket": "^0.2.11",
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-socket": "0.2.11",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/papaparse": "5.5.2",
-    "@types/pg": "^8.23.1",
+    "@types/pg": "8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "4.1.11",
-    "typescript-eslint": "8.68.0",
-    "@eslint/js": "9.39.5",
-    "globals": "16.4.0"
+    "vitest": "4.1.11"
   },
-  "packageManager": "pnpm@11.19.0"
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": "24.x"
+  }
 }

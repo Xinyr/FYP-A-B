@@ -12,6 +12,9 @@ import { createGroupedPersistenceService } from "../../lib/server/persistence/gr
 import { createPersistenceService } from "../../lib/server/persistence/service";
 import { createPersistenceRepository } from "../../lib/server/persistence/repository";
 import { syntheticResult, header } from "./fixtures";
+import { createAcceptedDataPayload } from "../../lib/ingestion";
+import { consultationResults } from "../integration/fixtures";
+import { phase4MigrationCases } from "./phase4-migration-cases";
 
 // Never uses developer credentials or the running PostgreSQL service/data directory.
 const binaries = process.env.FINGENCE_TEST_PG_BIN ?? "C:\\Program Files\\PostgreSQL\\18\\bin";
@@ -53,7 +56,7 @@ suite("native disposable PostgreSQL: C3-B1 concurrency and production adapter", 
     execFileSync(join(binaries, "pg_ctl.exe"), ["-D", directory, "-l", join(directory, "test-server.log"), "-o", `-h 127.0.0.1 -p ${port}`, "-w", "-t", "30", "start"], { windowsHide: true, timeout: 35000, stdio: "ignore" });
     pool = makePool();
     await pool.query("CREATE ROLE anon; CREATE ROLE authenticated;");
-    for (const path of ["../../supabase/sql/phase1-clean-setup.sql", "../../supabase/sql/c3b1-grouped-persistence-upgrade.sql"]) {
+    for (const path of ["../../supabase/sql/phase1-clean-setup.sql", "../../supabase/sql/c3b1-grouped-persistence-upgrade.sql", "../../supabase/sql/phase4-accepted-data-upgrade.sql"]) {
       await pool.query(readFileSync(new URL(path, import.meta.url), "utf8"));
     }
     expect((await pool.query("SELECT version() version")).rows[0].version).toContain("PostgreSQL");
@@ -182,5 +185,54 @@ suite("native disposable PostgreSQL: C3-B1 concurrency and production adapter", 
     const row = (await pool.query("SELECT status, persistence_attempt_id, warning_count FROM public.ingestion_batches WHERE id=$1", [receipt.batch_id])).rows[0];
     expect(row).toEqual({ status: "ACTIVE", persistence_attempt_id: null, warning_count: 1 });
     expect((await pool.query("SELECT count(*)::int count FROM public.validation_issues i JOIN public.financial_records r ON r.id=i.financial_record_id WHERE r.batch_id=$1", [receipt.batch_id])).rows[0].count).toBeGreaterThan(0);
+  });
+  it("persists the real C1 CSV/XLSX transport through the production pg adapter", async () => {
+    const service = createGroupedPersistenceService(adapter()), attempt_id = randomUUID();
+    const payload = createAcceptedDataPayload(await consultationResults());
+    const receipt = await service.persistAcceptedAttempt({ attempt_id, payload });
+    expect(receipt.datasets).toHaveLength(3);
+    expect(await counts()).toEqual({ attempts: 1, batches: 3, records: 23 });
+    expect((await pool.query("SELECT count(*)::int n FROM public.validation_issues")).rows[0]).toEqual({ n: 3 });
+    expect((await pool.query("SELECT sum(rows_received)::int received, sum(valid_count)::int valid, sum(warning_count)::int warning, sum(rejected_count)::int rejected FROM public.ingestion_batches")).rows[0])
+      .toEqual({ received: 26, valid: 20, warning: 3, rejected: 3 });
+    expect((await pool.query("SELECT count(*)::int n FROM public.financial_records WHERE monetary_basis='debit_credit' AND derived_ledger_net IS NULL")).rows[0]).toEqual({ n: 10 });
+    expect(await service.investigateAttempt(attempt_id)).toMatchObject({ outcome: "CONFIRMED_COMMITTED" });
+  });
+  it("rolls back C1 earlier children on a later native database failure", async () => {
+    await pool.query(`CREATE FUNCTION public.fail_c1_child() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.source_file='bank_statement.xlsx' THEN RAISE EXCEPTION 'synthetic failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER fail_c1_child BEFORE INSERT ON public.ingestion_batches FOR EACH ROW EXECUTE FUNCTION public.fail_c1_child();`);
+    try {
+      await expect(createGroupedPersistenceService(adapter()).persistAcceptedAttempt({ attempt_id: randomUUID(),
+        payload: createAcceptedDataPayload(await consultationResults()) })).rejects.toMatchObject({ code: "PERSISTENCE_FAILED" });
+      expect(await counts()).toEqual({ attempts: 0, batches: 0, records: 0 });
+    } finally { await pool.query("DROP TRIGGER fail_c1_child ON public.ingestion_batches; DROP FUNCTION public.fail_c1_child();"); }
+  });
+  it("investigates a real C1 COMMIT after lost acknowledgement without retry", async () => {
+    let commits = 0;
+    const database = adapter("READ COMMITTED", client => ({
+      async query<Row extends Record<string, unknown>>(sql: string, values?: unknown[]): Promise<QueryResult<Row>> {
+        const result = await client.query<Row>(sql, values);
+        if (sql === "COMMIT") { commits++; throw new Error("synthetic lost acknowledgement"); }
+        return result;
+      },
+    }));
+    const attempt_id = randomUUID();
+    await expect(createGroupedPersistenceService(database).persistAcceptedAttempt({ attempt_id,
+      payload: createAcceptedDataPayload([await syntheticResult()]) })).rejects.toMatchObject({ code: "COMMIT_OUTCOME_UNKNOWN" });
+    expect(commits).toBe(1);
+    expect(await counts()).toEqual({ attempts: 1, batches: 1, records: 1 });
+    expect(await createGroupedPersistenceService(adapter()).investigateAttempt(attempt_id)).toMatchObject({ outcome: "CONFIRMED_COMMITTED" });
+  });
+  phase4MigrationCases("native PostgreSQL: strict Phase 4 monetary migration", async () => {
+    // A separate fresh database inside this suite's disposable loopback-only cluster.
+    const name = "phase4_migration_" + randomUUID().replaceAll("-", "");
+    await pool.query(`CREATE DATABASE ${name}`);
+    const migrationPool = new Pool({ host: "127.0.0.1", port, database: name, user: "postgres", max: 1 });
+    return {
+      exec: async sql => { await migrationPool.query(sql); },
+      query: sql => migrationPool.query(sql),
+      close: async () => { await migrationPool.end(); await pool.query(`DROP DATABASE ${name}`); },
+    };
   });
 });

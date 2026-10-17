@@ -10,9 +10,9 @@ import { createPersistenceRepository } from "../persistence/repository";
 import { createPersistenceService } from "../persistence/service";
 import { validateSourceFile } from "../persistence/source-file";
 
-/** Extract the platform basename once; validation never rewrites it. */
+/** Extract a POSIX or Windows basename once; validation never rewrites it. */
 export function sourceFileFromPath(path: string): string {
-  return validateSourceFile(basename(path));
+  return validateSourceFile(basename(path.replace(/\\/g, "/")));
 }
 
 /** Internal new-attempt tool, never an application authorization bypass. */

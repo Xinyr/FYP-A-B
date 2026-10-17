@@ -1,0 +1,9 @@
+# Published synthetic fixture bytes are part of the confirmed integration contract.
+# CSV blobs must themselves contain the published CRLF bytes. Disabling text
+# conversion alone does not repair existing LF blobs; verify the staged hashes.
+public/samples/ingestion/ledger.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+public/samples/ingestion/edge_cases.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+public/samples/ingestion/bank_statement.xlsx -text
+public/samples/ingestion/expected.json -text
+# Existing group handoff regression compares this committed LF JSON byte-for-byte.
+docs/handoff/examples/ingestion-evidence.json -text

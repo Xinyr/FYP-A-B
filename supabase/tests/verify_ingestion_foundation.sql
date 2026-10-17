@@ -30,7 +30,7 @@ DO $$ BEGIN
  BEGIN UPDATE public.ingestion_batches SET rows_received=3 WHERE id='10000000-0000-4000-8000-000000000001'; RAISE EXCEPTION 'Bad counts accepted'; EXCEPTION WHEN check_violation THEN NULL; END;
  BEGIN UPDATE public.validation_issues SET original_value='{"value":"1"}' WHERE id='30000000-0000-4000-8000-000000000001'; RAISE EXCEPTION 'Malformed evidence accepted'; EXCEPTION WHEN check_violation THEN NULL; END;
  BEGIN UPDATE public.validation_issues SET severity='REJECTED' WHERE id='30000000-0000-4000-8000-000000000001'; RAISE EXCEPTION 'Rejected issue accepted'; EXCEPTION WHEN check_violation THEN NULL; END;
- BEGIN DELETE FROM public.ingestion_batches WHERE id='10000000-0000-4000-8000-000000000001'; RAISE EXCEPTION 'History deleted'; EXCEPTION WHEN foreign_key_violation THEN NULL; END;
+ BEGIN DELETE FROM public.ingestion_batches WHERE id='10000000-0000-4000-8000-000000000001'; RAISE EXCEPTION 'History deleted'; EXCEPTION WHEN foreign_key_violation OR restrict_violation THEN NULL; END;
  BEGIN
    DELETE FROM public.validation_issues WHERE id='30000000-0000-4000-8000-000000000001';
    SET CONSTRAINTS ALL IMMEDIATE;

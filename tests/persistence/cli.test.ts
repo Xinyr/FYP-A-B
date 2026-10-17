@@ -76,7 +76,7 @@ it.each([
   { value: "postgres://synthetic@127.0.0.1:1/postgres?sslmode=disable", code: "DATABASE_UNAVAILABLE" },
 ])("runs the ordinary Node CLI and fails safely without a hosted connection %#", ({ value, code }) => {
   // Allowlist only: never inherit developer credentials, hosted consent or Node preload options.
-  const env: Record<string, string> = { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", NODE_OPTIONS: "", NODE_ENV: "test", FINSIGHT_PHASE2_TEST_NO_ENV_FILE: "1" };
+  const env: NodeJS.ProcessEnv = { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", NODE_OPTIONS: "", NODE_ENV: "test", FINSIGHT_PHASE2_TEST_NO_ENV_FILE: "1" };
   if (value) env.SUPABASE_DATABASE_URL = value;
   const result = spawnSync(process.execPath, ["--conditions=react-server", "scripts/phase2.mjs"], { env, encoding: "utf8", timeout: 15000 });
   expect(result.status).toBe(1);

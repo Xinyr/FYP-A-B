@@ -5,7 +5,7 @@ import { validatePersistenceRequest } from "./validate";
 function copyCell(value: RawCell): RawCell {
   return value !== null && typeof value === "object" ? { kind: value.kind, value: value.value } : value;
 }
-function mapRecord(row: AcceptedTransaction): RecordPlan {
+export function mapRecord(row: AcceptedTransaction): RecordPlan {
   // Explicit allowlist: source_row_id remains lineage, with no generated UUID/FK.
   const financial_record: FinancialRecordValues = {
     ingestion_batch_id: row.ingestion_batch_id,

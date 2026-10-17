@@ -88,6 +88,63 @@ describe("server PostgreSQL adapter", () => {
     await expect(fixture.database.transaction(async () => "none")).rejects.toMatchObject({ code: "PERSISTENCE_FAILED" });
     expect(fixture.release).toHaveBeenCalledExactlyOnceWith(true);
   });
+  it("preserves an acknowledged COMMIT result when releasing the connection throws", async () => {
+    const fixture = poolFixture();
+    const receipt = { attempt_id: "synthetic-acknowledged-attempt", accepted: 23 };
+    const work = vi.fn(async () => receipt);
+    fixture.release.mockImplementationOnce(() => { throw new Error("private cleanup failure"); });
+
+    await expect(fixture.database.transaction(work)).resolves.toBe(receipt);
+
+    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(false);
+    expect(fixture.pool.connect).toHaveBeenCalledTimes(1);
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "COMMIT")).toHaveLength(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "ROLLBACK")).toHaveLength(0);
+  });
+  it("preserves an unknown COMMIT outcome when releasing the broken connection throws", async () => {
+    const fixture = poolFixture(sql => sql === "COMMIT" ? new Error("private acknowledgement loss") : undefined);
+    const work = vi.fn(async () => "unconfirmed-result");
+    fixture.release.mockImplementationOnce(() => { throw new Error("private cleanup failure"); });
+
+    await expect(fixture.database.transaction(work)).rejects.toMatchObject({ code: "COMMIT_OUTCOME_UNKNOWN" });
+
+    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(true);
+    expect(fixture.pool.connect).toHaveBeenCalledTimes(1);
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "BEGIN")).toHaveLength(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "COMMIT")).toHaveLength(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "ROLLBACK")).toHaveLength(1);
+  });
+  it("preserves rollback uncertainty when releasing the broken connection also throws", async () => {
+    const fixture = poolFixture(sql => sql === "ROLLBACK" ? new Error("private rollback failure") : undefined);
+    const work = vi.fn(async () => { throw new Error("private operation failure"); });
+    fixture.release.mockImplementationOnce(() => { throw new Error("private cleanup failure"); });
+
+    await expect(fixture.database.transaction(work)).rejects.toMatchObject({ code: "ROLLBACK_UNCONFIRMED" });
+
+    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(true);
+    expect(fixture.pool.connect).toHaveBeenCalledTimes(1);
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "BEGIN")).toHaveLength(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "COMMIT")).toHaveLength(0);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "ROLLBACK")).toHaveLength(1);
+  });
+  it("preserves definite server-reported COMMIT failure when connection release throws", async () => {
+    const fixture = poolFixture(sql => sql === "COMMIT"
+      ? Object.assign(new Error("private constraint failure"), { code: "23514" }) : undefined);
+    const work = vi.fn(async () => "rejected-result");
+    fixture.release.mockImplementationOnce(() => { throw new Error("private cleanup failure"); });
+
+    await expect(fixture.database.transaction(work)).rejects.toMatchObject({ code: "PERSISTENCE_FAILED" });
+
+    expect(fixture.release).toHaveBeenCalledExactlyOnceWith(false);
+    expect(fixture.pool.connect).toHaveBeenCalledTimes(1);
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "BEGIN")).toHaveLength(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "COMMIT")).toHaveLength(1);
+    expect(fixture.query.mock.calls.filter(call => call[0] === "ROLLBACK")).toHaveLength(1);
+  });
   it("checks the whole-operation deadline and rolls back rather than committing", async () => {
     const fixture = poolFixture();
     const now = vi.spyOn(Date, "now").mockReturnValue(0);

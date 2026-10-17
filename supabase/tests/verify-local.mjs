@@ -2,7 +2,7 @@
 // Install the pinned runtime using the command in docs/database/initial-ingestion-foundation.md.
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { PGlite } from '../.verification-runtime/node_modules/@electric-sql/pglite/dist/index.js';
+import { PGlite } from '@electric-sql/pglite';
 const db = new PGlite();
 const sql = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 try {

@@ -115,7 +115,10 @@ export function transactionDatabase(pool: ConnectionPool): TransactionDatabase {
         throw new PersistenceError("PERSISTENCE_FAILED");
       } finally {
         // Destroy uncertain/broken connections rather than returning them to the pool.
-        try { client.release(destroy); } catch { throw new PersistenceError("DATABASE_UNAVAILABLE"); }
+        try { client.release(destroy); } catch {
+          // Cleanup cannot undo an acknowledged COMMIT or replace an uncertain
+          // transaction outcome. Preserve the receipt/classified error; never retry.
+        }
       }
     },
     async close() {

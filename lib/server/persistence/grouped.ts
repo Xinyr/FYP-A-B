@@ -3,6 +3,7 @@ import type { IngestionResult } from "../../ingestion/models";
 import type { TransactionDatabase } from "../db/postgres";
 import { PersistenceError, type PersistedAttempt } from "./contracts";
 import { preparePersistencePlan } from "./map";
+import { prepareAcceptedGroup, type GroupedChild } from "./accepted-plan";
 import { createPersistenceRepository } from "./repository";
 
 /** Internal trusted-engine boundary; deliberately not an external C1/C2 DTO. */
@@ -27,6 +28,36 @@ function attemptId(value: unknown): string {
 
 /** Must use the same authoritative writable database for writes and investigation. */
 export function createGroupedPersistenceService(database: TransactionDatabase) {
+  async function persistChildren(id: string, children: GroupedChild[]): Promise<GroupedPersistenceReceipt> {
+    try {
+      return await database.transaction(async connection => {
+        // Serialize this ID with investigation; hash collisions only serialize unrelated IDs.
+        await connection.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [id]);
+        const inserted = await connection.query(
+          "INSERT INTO public.persistence_attempts (id, dataset_count) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id",
+          [id, children.length]);
+        // No replay, automatic retry, or changed-payload reuse of an attempt ID.
+        if (inserted.rowCount !== 1) throw new PersistenceError("IDEMPOTENCY_UNSUPPORTED");
+        // Reuse the established writer on this exact connection. No nested BEGIN/COMMIT.
+        const writer = createPersistenceRepository({ close: async () => {}, transaction: work => work(connection) }, true);
+        const datasets: GroupedPersistenceReceipt["datasets"] = [];
+        for (const child of children) {
+          const receipt = await writer.persistNewAttempt(child.plan);
+          const dataset_id = child.plan.datasets[0].dataset_id;
+          const linked = await connection.query(
+            "UPDATE public.ingestion_batches SET persistence_attempt_id=$1, dataset_id=$2, context=$3::jsonb WHERE id=$4",
+            [id, dataset_id, JSON.stringify(child.metadata), receipt.batch_id]);
+          if (linked.rowCount !== 1) throw new PersistenceError("PERSISTENCE_FAILED");
+          datasets.push({ ...receipt, dataset_id, source_file: child.plan.batch.source_file,
+            status: receipt.accepted_record_count === 0 ? "COMPLETED_EMPTY" : "ACTIVE" });
+        }
+        return { attempt_id: id, datasets };
+      }, { isolationLevel: "READ COMMITTED" });
+    } catch (error) {
+      if (error instanceof PersistenceError) throw error;
+      throw new PersistenceError("PERSISTENCE_FAILED");
+    }
+  }
   return {
     async persistGroupedAttempt(input: GroupedPersistenceRequest): Promise<GroupedPersistenceReceipt> {
       const id = attemptId(input.attempt_id);
@@ -46,34 +77,12 @@ export function createGroupedPersistenceService(database: TransactionDatabase) {
         child.plan.batch.source_file, child.plan.datasets[0].dataset_id]))).size !== children.length) {
         throw new PersistenceError("INVALID_INPUT");
       }
-      try {
-        return await database.transaction(async connection => {
-          // Serialize this ID with investigation; hash collisions only serialize unrelated IDs.
-          await connection.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [id]);
-          const inserted = await connection.query(
-            "INSERT INTO public.persistence_attempts (id, dataset_count) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id",
-            [id, children.length]);
-          // No replay, automatic retry, or changed-payload reuse of an attempt ID.
-          if (inserted.rowCount !== 1) throw new PersistenceError("IDEMPOTENCY_UNSUPPORTED");
-          // Reuse the established writer on this exact connection. No nested BEGIN/COMMIT.
-          const writer = createPersistenceRepository({ close: async () => {}, transaction: work => work(connection) }, true);
-          const datasets: GroupedPersistenceReceipt["datasets"] = [];
-          for (const child of children) {
-            const receipt = await writer.persistNewAttempt(child.plan);
-            const dataset_id = child.plan.datasets[0].dataset_id;
-            const linked = await connection.query(
-              "UPDATE public.ingestion_batches SET persistence_attempt_id=$1, dataset_id=$2, context=$3::jsonb WHERE id=$4",
-              [id, dataset_id, JSON.stringify(child.metadata), receipt.batch_id]);
-            if (linked.rowCount !== 1) throw new PersistenceError("PERSISTENCE_FAILED");
-            datasets.push({ ...receipt, dataset_id, source_file: child.plan.batch.source_file,
-              status: receipt.accepted_record_count === 0 ? "COMPLETED_EMPTY" : "ACTIVE" });
-          }
-          return { attempt_id: id, datasets };
-        }, { isolationLevel: "READ COMMITTED" });
-      } catch (error) {
-        if (error instanceof PersistenceError) throw error;
-        throw new PersistenceError("PERSISTENCE_FAILED");
-      }
+      return persistChildren(id, children);
+    },
+    /** Internal reduced C1 boundary, not an HTTP endpoint or authorization proof. */
+    async persistAcceptedAttempt(input: { attempt_id: string; payload: unknown }): Promise<GroupedPersistenceReceipt> {
+      const id = attemptId(input.attempt_id);
+      return persistChildren(id, prepareAcceptedGroup(input.payload));
     },
     async investigateAttempt(value: string): Promise<AttemptInvestigation> {
       const id = attemptId(value);

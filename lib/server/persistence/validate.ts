@@ -9,7 +9,7 @@ import {
 import { validateSourceFile } from "./source-file";
 
 type ObjectValue = Record<string, unknown>;
-function requireInput(condition: unknown): asserts condition {
+export function requireInput(condition: unknown): asserts condition {
   if (!condition) throw new PersistenceError("INVALID_INPUT");
 }
 function object(value: unknown): ObjectValue {
@@ -116,7 +116,7 @@ function provenance(value: unknown, context: DatasetContext) {
     && result.source_row_id === `${context.hash}:${context.sheetIndex}:${result.source_row_number}`);
   return result;
 }
-function canonical(value: unknown, context: DatasetContext): AcceptedTransaction {
+function canonical(value: unknown, context: DatasetContext, reduced = false): AcceptedTransaction {
   const input = object(value);
   const result: AcceptedTransaction = {
     ...provenance(input, context),
@@ -142,8 +142,8 @@ function canonical(value: unknown, context: DatasetContext): AcceptedTransaction
   requireInput((result.ingestion_status === "VALID") === (result.validation_messages.length === 0));
   requireInput((result.currency === null) === (result.currency_basis === null));
   if (result.monetary_basis === "debit_credit") {
-    requireInput(result.debit !== null && result.credit !== null && result.derived_ledger_net !== null);
-    requireInput(subtractDecimals(result.derived_ledger_net, subtractDecimals(result.debit, result.credit)) === "0");
+    requireInput(result.debit !== null && result.credit !== null && (reduced || result.derived_ledger_net !== null));
+    if (result.derived_ledger_net !== null) requireInput(subtractDecimals(result.derived_ledger_net, subtractDecimals(result.debit, result.credit)) === "0");
   } else {
     requireInput(result.source_amount !== null && result.derived_ledger_net === null);
     if (result.monetary_basis === "source_amount_with_direction") {
@@ -254,3 +254,6 @@ export function validatePersistenceRequest(input: unknown): ValidatedPersistence
     throw new PersistenceError("INVALID_INPUT");
   }
 }
+
+/** Shared backend validation primitives; no authorization or engine evidence is implied. */
+export const persistenceValidation = { requireInput, object, array, text, nullableText, integer, timestamp, canonical };

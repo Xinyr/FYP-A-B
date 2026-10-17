@@ -1,59 +1,81 @@
-# FinSight backend/database workspace
+# FinGence — SAIC integration candidate, 15 October 2026
 
-## Source filename provenance update (local verification only)
+The SAIC consultation candidate integrates reviewed ingestion/C1/C2 and live C1 analytics, with local-only grouped persistence and server-only security helpers. See the [current integration status and ownership](docs/releases/saic-2026-10-16/README.md) for authoritative release scope, test evidence, limitations and approval gates. The historical ingestion handoff below remains useful for engine semantics; older future-integration statements are superseded only by that release document. Schema/ruleset remain `0.1`. No production or shared-main deployment is implied by a candidate.
 
-The prepared schema upgrade has **not been deployed to hosted FYP A**. Hosted execution requires separate approval and schema verification. Do not run the updated writer against the old hosted schema.
+# FinSight Prototype
 
-Use `source_file` consistently: it is new on `ingestion_batches` and `validation_issues`, and remains the existing column on `financial_records`. No `source_file_name` column is introduced. New persistence attempts use one validated basename across the three tables. Historical new columns remain NULL; existing record provenance is preserved verbatim. No historical filenames are fabricated.
+COS40005 Project A, Sprint 1 — Topic 21: **Finance Intelligence: AI-Driven Financial Analysis and Automated Reporting**.
 
-Phase 1's primary setup workflow is SQL Editor with `supabase/sql/phase1-clean-setup.sql` for an empty database, or the additive `phase1-source-file-upgrade.sql` for an existing foundation. The original schema is an internal test/history fixture; the seed remains local verification data. SQL Editor is the only operational setup/update method. See the Phase 1 and Phase 2 READMEs for instructions and local-only verification. No hosted deployment is included in this change.
+The **Data** page now runs a real, local **Data Ingestion PoC v0.1**: read CSV/XLSX, profile source values, review column mappings and conventions, validate rows, inspect warnings/rejections, normalize accepted records, consolidate compatible representations, and export evidence. The canonical schema is provisional and awaits client feedback.
 
-Personal backend development workspace for database foundation and transactional ingestion persistence. This repository no longer contains or runs the original Next.js frontend.
+Overview, Transactions, Reconciliation, Analytics, Forecasting, Anomalies and Reports remain the existing mock UI prototype. They do not consume uploaded data. There is no trained model, reconciliation engine, backend, database, authentication or production integration.
 
-## Development
+## Data Ingestion PoC v0.1 — Team Integration Snapshot
 
-Use the pinned pnpm package manager with a Node runtime supported by the installed dependencies (verification uses the existing local Node runtime).
+Start with the [teammate handoff](docs/handoff/TEAM_HANDOFF.md) or [AI context](docs/handoff/AI_CONTEXT.md), then the [tested consumer recipe](examples/ingestion/consume.ts). Default downstream input is `consolidate(results).normalized` or JSON `datasets[].normalized`: VALID/WARNING records, with warnings and lineage retained. `datasets[].records` also contains quarantine/evidence and is not the default analysis input.
 
-```sh
+**SYNTHETIC EXAMPLE · NOT CLIENT DATA · NOT A PRODUCTION API CONTRACT:** [engine-generated evidence JSON](docs/handoff/examples/ingestion-evidence.json). [Handoff tests](tests/ingestion/handoff.test.ts) verify it against the exporter and independent fixture expectations. This integration snapshot contains Chia's verified **Data Ingestion PoC v0.1** baseline for team review and downstream integration planning. It is intended for the shared team branch `feature/data-ingestion-chia`, is **not merged into `main`**, and active development continues separately in Chia's development repository. Schema/ruleset remain `0.1`.
+
+## Run locally
+
+Use the repository's pnpm package manager. Verification used **Node 25.8.1** and **pnpm 11.19.0**; a different Node version has not been verified for this increment. No Python environment or secrets are required.
+
+From the repository root:
+
+```bash
 pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm test:persistence
-pnpm test:db
-pnpm test:ingestion
-pnpm check:server-boundary
+pnpm dev --hostname 127.0.0.1
 ```
 
-`pnpm test` covers all retained ingestion compatibility and persistence tests. Retained integration tests use disposable PGlite over the actual pg wire protocol. All use synthetic data and require no hosted credentials.
+Open [the ingestion demo](http://127.0.0.1:3000/data). A modern browser with Web Crypto is required; localhost is supported. For a local production-build demonstration:
 
-## Structure
+```bash
+pnpm build
+pnpm start --hostname 127.0.0.1
+```
 
-- `lib/server/`: validated/mapped ingestion results, PostgreSQL adapter, repository and internal persistence service.
-- `lib/ingestion/`: unchanged required Chia engine/contracts and public barrel, used by persistence and producer compatibility tests.
-- `tests/persistence/` and `tests/ingestion/`: backend and meaningful producer compatibility coverage.
-- `public/samples/ingestion/`: four synthetic test fixtures, retained at existing paths to preserve test and implementation bytes. There is no public HTTP server.
-- `supabase/sql/`: operational SQL Editor setup/update scripts; `supabase/tests/`: disposable local verification and immutable baseline fixture.
-- `docs/database/`: Phase 1/2 implementation records and current workspace cleanup plan/results.
-- `scripts/`: actual server-only conditional-import verification.
+Stop the development server before starting a second server on port 3000.
 
-The sibling `Chia Data` folder preserves the complete ingestion reference and supporting context. `Cleanup Backup` preserves the original project. Neither is an install dependency or part of this repository.
+## Consultation demo
 
-## Server boundary and database configuration
+1. Click **Load ledger CSV** (or upload `public/samples/ingestion/ledger.csv`). Inspect its 10 rows and `posting_date / journal_id / debit / credit` columns.
+2. Review the suggested mappings. Keep **Debit / credit** and **Canonical date source → Posting date**. Check the review box and click **Validate and normalize**: **10 VALID**.
+3. Click **Load bank XLSX** (or upload `bank_statement.xlsx`). Choose **Transactions**, leaving the `Read me` sheet unprocessed. Its 8 rows use `Date / Details / Narration / Direction / Amount / Balance / Currency`.
+4. Two source columns initially suggest `description`. Change **Details → reference**, keep **Narration → description**, and review **Unsigned amount + Debit/Credit direction**. Confirm and run: **8 VALID**.
+5. Click **Load edge cases**, review the ignored `Unmapped Note`, confirm, and run: **2 VALID, 3 WARNING, 3 REJECTED**.
+6. Select **REJECTED · 3**, then inspect source row **7**. The original `31/31/2026`, validation rule, raw cells, staging values, partial candidate and source metadata remain visible.
+7. Show the consolidated summary: **3 files, 26 received, 20 valid, 3 warnings, 3 rejected, 23 accepted**. The output retains independent transaction/posting dates, explicit canonical date/basis, and separate source amount, debit, credit and ledger net fields.
+8. Download **Canonical CSV**, **Rejected issues CSV** and **JSON evidence bundle**. Re-load a sample to show the duplicate-file warning; edit a mapping to show that approval/output are invalidated until reprocessing.
 
-The adapter/repository/service retain `import "server-only"`. The package's default import deliberately throws. Trusted Node ESM entry points must use `node --conditions=react-server`; tests mock the marker only within the existing test harness. React and Next.js are not needed for this conditional export. This is an internal architecture guard, not authentication or authorization.
+See [the detailed demo guide](docs/ingestion/demo.md) and [architecture, schema and metric definitions](docs/ingestion/architecture.md). Predetermined fixture expectations are in [expected.json](public/samples/ingestion/expected.json).
 
-Only the server environment supplies `SUPABASE_DATABASE_URL` and optional `SUPABASE_DATABASE_CA_CERT`. Never use `NEXT_PUBLIC_`, commit real values, expose URLs or connect privileged persistence to a browser. Runtime remote TLS remains verified. This workspace does not supply a deployment/build contract or public API.
+## Verification
 
-The internal Phase 2 service requires `intent: "NEW_ATTEMPT_NO_RETRY"`. This checkpoint has no durable request identity, idempotent replay or technical reconciliation.
+```bash
+pnpm test
+pnpm lint
+pnpm exec next typegen
+pnpm exec tsc --noEmit --incremental false
+pnpm build
+pnpm audit --json
+```
 
-## Backend roadmap
+`next typegen` generates the Next.js route/layout types used by the existing layout, including `LayoutProps`. Run it before TypeScript in a fresh checkout without a build cache. The ordinary suite uses only repository synthetic fixtures. One integration test is skipped unless the external **supplied synthetic workbook** is explicitly selected:
 
-| Phase | Scope | Status |
-| --- | --- | --- |
-| 1 | Database Foundation | Completed |
-| 2 | Transactional Ingestion Persistence | Completed |
-| 3 | Durable Requests, Reconciliation and Batch Lifecycle | Planned / next |
-| 4 | Backend API and Dashboard Ready Data Services | Planned |
+```bash
+FINSIGHT_WORKBOOK_PATH='/path/to/SAIC_HF_Augmented_Bank_Transactions_v2.xlsx' pnpm test
+```
 
-Security/cybersecurity is a separate team responsibility. This backend retains Phase 1/2 correctness and safety controls; it provides no authentication or authorization service and must not be exposed as an unrestricted public writer. Neither planned phase is implemented on main.
+That file is not required for installation/demo and is not copied into this repository. Only `Transactions` is transformed; label and ground-truth sheets are not input transactions. [Verification evidence](docs/ingestion/verification.md) records actual commands, counts and manual checks.
+
+## Data handling and boundaries
+
+- Uploaded files are parsed in browser memory. No ingestion endpoint, upload POST, database write or persistent browser storage is implemented. Refresh, navigation away, or **Reset session** discards the session. Downloads deliberately save user-selected evidence locally and may contain financial data.
+- Only synthetic consultation samples live in `public/`. Never place client uploads there or commit them. Original byte buffers are released after parsing; file hash, parsed source values, source coordinates, mapping and rules remain available in session/evidence.
+- CSV must be UTF-8. Comma, semicolon and tab separators are supported; select a separator and re-upload the file to re-read it. Choose ISO, DMY or MDY explicitly for text dates and an explicit text number convention. Blank text becomes null; literal `NA` remains text.
+- `transaction_date` and `posting_date` preserve independent source meanings. `canonical_date` uses the reviewed source, identified by `canonical_date_basis`; missing/invalid selected dates reject without fallback. Ingestion timestamps require a strict known-offset ISO instant and are stored in UTC with milliseconds. Currency defaults and approved blank-side conversions carry explicit provenance.
+- The PoC accepts ordinary values-only XLSX. Input/expansion/entry/coordinate bounds and checks for common unsupported workbook constructs are implemented. This is a bounded prototype, not a comprehensive hostile-workbook security boundary.
+- Money is exact decimal **text**, not JavaScript floating-point arithmetic. `derived_ledger_net = debit - credit` is a ledger convenience value. No universal cash-flow meaning, exchange-rate conversion or mixed-source financial total is inferred.
+- Exact duplicate files are blocked within the session; repeated raw rows are warned and retained. Economic duplicates across ledger/bank sources require a future reconciliation layer.
+
+This is **NOT the final production system**. Measured fixture outcomes demonstrate ingestion behavior; they do not establish accounting correctness on client files or model/reconciliation accuracy.
